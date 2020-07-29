@@ -97,6 +97,8 @@ class ReplayMemory():
         transition[t] = blank_trans  # If prev (next) frame is terminal
     return transition
 
+
+
   # Returns a valid sample from a segment
   def _get_sample_from_segment(self, segment, i):
     valid = False
@@ -112,6 +114,7 @@ class ReplayMemory():
     # Create un-discretised state and nth next state
     state = torch.stack([trans.state for trans in transition[:self.history]]).to(device=self.device).to(dtype=torch.float32).div_(255)
     next_state = torch.stack([trans.state for trans in transition[self.n:self.n + self.history]]).to(device=self.device).to(dtype=torch.float32).div_(255)
+
     # Discrete action to be used as index
     action = torch.tensor([transition[self.history - 1].action], dtype=torch.int64, device=self.device)
     # Calculate truncated n-step discounted return R^n = Σ_k=0->n-1 (γ^k)R_t+k+1 (note that invalid nth next states have reward 0)
@@ -119,6 +122,7 @@ class ReplayMemory():
     # Mask for non-terminal nth next states
     nonterminal = torch.tensor([transition[self.history + self.n - 1].nonterminal], dtype=torch.float32, device=self.device)
 
+    # return prob, idx, tree_idx, state, action, R, next_state, nonterminal
     return prob, idx, tree_idx, state, action, R, next_state, nonterminal
 
   def sample(self, batch_size):
@@ -163,3 +167,63 @@ class ReplayMemory():
     return state
 
   next = __next__  # Alias __next__ for Python 2 compatibility
+
+
+class ReplaySequenceMemory(ReplayMemory):
+
+  # Returns a transition with blank states where appropriate
+  def _get_transition(self, idx):
+    transition = np.array([None] * (self.history + self.n))
+    transition[0] = self.transitions.get(idx)
+    for t in range(1, transition.shape[0]):
+      transition[t] = self.transitions.get(idx + t)
+      if transition[t] is None:
+        print("here")
+    return transition
+
+  def _is_valid_idx(self, idx):
+    for i in range(self.n + self.history):
+      trans = self.transitions.get(idx + i)
+      if trans is None or not trans.nonterminal:
+        return False
+
+    return True
+
+  # Returns a valid sample from a segment
+  def _get_sample_from_segment(self, segment, i):
+    valid = False
+    while not valid:
+      sample = np.random.uniform(i * segment, (i + 1) * segment)  # Uniformly sample an element from within a segment
+      prob, idx, tree_idx = self.transitions.find(sample)  # Retrieve sample from tree with un-normalised probability
+      # Resample if transition straddled current index or probablity 0
+      if (self.transitions.index - idx) % self.capacity > self.n and \
+              (idx - self.transitions.index) % self.capacity >= self.history and \
+              prob != 0 and self._is_valid_idx(idx):
+        valid = True  # Note that conditions are valid but extra conservative around buffer index 0
+
+    # Retrieve all required transition data (from t - h to t + n)
+    transition = self._get_transition(idx)
+    # Create un-discretised state and nth next state
+    state = torch.stack([trans.state for trans in transition]).to(device=self.device, dtype=torch.float32).div_(255)
+    # Discrete action to be used as index
+    action = torch.stack([torch.tensor(trans.action) for trans in transition]).to(device=self.device, dtype=torch.long)
+    # Calculate truncated n-step discounted return R^n = Σ_k=0->n-1 (γ^k)R_t+k+1 (note that invalid nth next states have reward 0)
+    R = torch.tensor([sum(self.discount ** n * transition[self.history + n - 1].reward for n in range(self.n))], dtype=torch.float32, device=self.device)
+    # Mask for non-terminal nth next states
+    nonterminal = torch.tensor([transition[self.history + self.n - 1].nonterminal], dtype=torch.float32, device=self.device)
+
+    # return prob, idx, tree_idx, state, action, R, next_state, nonterminal
+    return prob, idx, tree_idx, state, action, R, nonterminal
+
+  def sample(self, batch_size):
+    p_total = self.transitions.total()  # Retrieve sum of all priorities (used to create a normalised probability distribution)
+    segment = p_total / batch_size  # Batch size number of segments, based on sum over all probabilities
+    batch = [self._get_sample_from_segment(segment, i) for i in range(batch_size)]  # Get batch of valid samples
+    probs, idxs, tree_idxs, states, actions, returns, nonterminals = zip(*batch)
+    states, actions = torch.stack(states), torch.stack(actions)
+    returns, nonterminals = torch.cat(returns), torch.stack(nonterminals)
+    probs = np.array(probs, dtype=np.float32) / p_total  # Calculate normalised probabilities
+    capacity = self.capacity if self.transitions.full else self.transitions.index
+    weights = (capacity * probs) ** -self.priority_weight  # Compute importance-sampling weights w
+    weights = torch.tensor(weights / weights.max(), dtype=torch.float32, device=self.device)  # Normalise by max importance-sampling weight from batch
+    return tree_idxs, states, actions, returns, nonterminals, weights

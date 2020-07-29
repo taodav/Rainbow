@@ -9,7 +9,7 @@ from torch.nn.utils import clip_grad_norm_
 from model import DQN
 
 
-class Agent():
+class DQNAgent():
   def __init__(self, args, env):
     self.action_space = env.action_space()
     self.atoms = args.atoms
@@ -19,6 +19,7 @@ class Agent():
     self.delta_z = (args.V_max - args.V_min) / (self.atoms - 1)
     self.batch_size = args.batch_size
     self.n = args.multi_step
+    self.h = args.history_length
     self.discount = args.discount
     self.norm_clip = args.norm_clip
 
@@ -60,7 +61,10 @@ class Agent():
 
   def learn(self, mem):
     # Sample transitions
-    idxs, states, actions, returns, next_states, nonterminals, weights = mem.sample(self.batch_size)
+    idxs, n_states, n_actions, returns, nonterminals, weights = mem.sample(self.batch_size)
+    states = n_states[:, :self.h]
+    next_states = n_states[:, self.n:self.n + self.h]
+    actions = n_actions[:, 0]
 
     # Calculate current state probabilities (online network noise already sampled)
     log_ps = self.online_net(states, log=True)  # Log probabilities log p(s_t, ·; θonline)

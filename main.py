@@ -11,9 +11,9 @@ import numpy as np
 import torch
 from tqdm import trange
 
-from agent import Agent
+from agents import DQNAgent, MPRAgent
 from env import Env
-from memory import ReplayMemory
+from memory import ReplayMemory, ReplaySequenceMemory
 from test import test
 
 
@@ -56,6 +56,13 @@ parser.add_argument('--enable-cudnn', action='store_true', help='Enable cuDNN (f
 parser.add_argument('--checkpoint-interval', default=0, help='How often to checkpoint the model, defaults to 0 (never checkpoint)')
 parser.add_argument('--memory', help='Path to save/load the memory from')
 parser.add_argument('--disable-bzip-memory', action='store_true', help='Don\'t zip the memory file. Not recommended (zipping is a bit slower and much, much smaller)')
+
+parser.add_argument('--life-termination', action='store_true', help='Do we terminate on loss of life?')
+parser.add_argument('--steps-per-train', type=int, default=1, help='number of steps per training iteration')
+parser.add_argument('--agent', type=str, default="dqn", help="Which agent do we initialize? dqn | mpr")
+# MPR hyperparams
+parser.add_argument('--k-step', type=int, default=5, help='(MPR) number of k-step returns')
+parser.add_argument('--mpr-loss-weight', type=float, default=2.0, help='(MPR) weight for MPR loss proportional to DQN loss')
 
 # Setup
 args = parser.parse_args()
@@ -106,7 +113,10 @@ env.train()
 action_space = env.action_space()
 
 # Agent
-dqn = Agent(args, env)
+if args.agent == "mpr":
+  dqn = MPRAgent(args, env)
+else:
+  dqn = DQNAgent(args, env)
 
 # If a model is provided, and evaluate is fale, presumably we want to resume, so try to load memory
 if args.model is not None and not args.evaluate:
@@ -118,13 +128,20 @@ if args.model is not None and not args.evaluate:
   mem = load_memory(args.memory, args.disable_bzip_memory)
 
 else:
-  mem = ReplayMemory(args, args.memory_capacity)
+  if args.agent == "mpr":
+    mem = ReplaySequenceMemory(args, args.memory_capacity)
+  else:
+    mem = ReplayMemory(args, args.memory_capacity)
 
 priority_weight_increase = (1 - args.priority_weight) / (args.T_max - args.learn_start)
 
 
 # Construct validation memory
-val_mem = ReplayMemory(args, args.evaluation_size)
+if args.agent == "mpr":
+  val_mem = ReplaySequenceMemory(args, args.memory_capacity)
+else:
+  val_mem = ReplayMemory(args, args.memory_capacity)
+
 T, done = 0, True
 while T < args.evaluation_size:
   if done:
@@ -143,7 +160,8 @@ else:
   # Training loop
   dqn.train()
   T, done = 0, True
-  for T in trange(1, args.T_max + 1):
+  pbar = trange(1, args.T_max + 1)
+  for T in pbar:
     if done:
       state, done = env.reset(), False
 
@@ -161,7 +179,7 @@ else:
       mem.priority_weight = min(mem.priority_weight + priority_weight_increase, 1)  # Anneal importance sampling weight β to 1
 
       if T % args.replay_frequency == 0:
-        dqn.learn(mem)  # Train with n-step distributional double-Q learning
+        losses = dqn.learn(mem)  # Train with n-step distributional double-Q learning
 
       if T % args.evaluation_interval == 0:
         dqn.eval()  # Set DQN (online network) to evaluation mode
