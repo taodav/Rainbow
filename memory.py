@@ -3,7 +3,8 @@ from __future__ import division
 from collections import namedtuple
 import numpy as np
 import torch
-
+from torch import nn
+import kornia.augmentation as aug
 
 Transition = namedtuple('Transition', ('timestep', 'state', 'action', 'reward', 'nonterminal'))
 blank_trans = Transition(0, torch.zeros(84, 84, dtype=torch.uint8), None, 0, False)
@@ -63,6 +64,17 @@ class SegmentTree():
   def total(self):
     return self.sum_tree[0]
 
+class Intensity(nn.Module):
+  def __init__(self, scale):
+    super().__init__()
+    self.scale = scale
+
+  def forward(self, x):
+    r = torch.randn((x.size(0), 1, 1, 1), device=x.device)
+
+    noise = 1.0 + (self.scale * r.clamp(-2.0, 2.0))
+    return x * noise
+
 class ReplayMemory():
   def __init__(self, args, capacity):
     self.device = args.device
@@ -74,6 +86,7 @@ class ReplayMemory():
     self.priority_exponent = args.priority_exponent
     self.t = 0  # Internal episode timestep counter
     self.transitions = SegmentTree(capacity)  # Store transitions in a wrap-around cyclic buffer within a sum tree for querying priorities
+
 
   # Adds state and action at time t, reward and terminal at time t + 1
   def append(self, state, action, reward, terminal):
@@ -165,6 +178,15 @@ class ReplayMemory():
 
 
 class ReplaySequenceMemory(ReplayMemory):
+  def __init__(self, args, capacity):
+    super(ReplaySequenceMemory, self).__init__(args, capacity)
+
+    if args.augment:
+      random_shift = nn.Sequential(nn.ReplicationPad2d(4), aug.RandomCrop((84, 84)))
+      intensity = Intensity(scale=0.1)
+      self.augment = nn.Sequential(random_shift, intensity)
+    else:
+      self.augment = nn.Identity()
 
   # Returns a transition with blank states where appropriate
   def _get_transition(self, idx):
@@ -200,6 +222,9 @@ class ReplaySequenceMemory(ReplayMemory):
     transition = self._get_transition(idx)
     # Create un-discretised state and nth next state
     state = torch.stack([trans.state for trans in transition]).to(device=self.device, dtype=torch.float32).div_(255)
+    # Augmentations to image
+    state = self.augment(state)
+
     # Discrete action to be used as index
     action = torch.stack([torch.tensor(trans.action) for trans in transition]).to(device=self.device, dtype=torch.long)
     # Calculate truncated n-step discounted return R^n = Σ_k=0->n-1 (γ^k)R_t+k+1 (note that invalid nth next states have reward 0)

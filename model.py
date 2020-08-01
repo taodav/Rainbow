@@ -6,6 +6,13 @@ from torch import nn, Tensor
 from torch.nn import functional as F
 from typing import List, Tuple
 
+def normalize_tensor(A: Tensor):
+  AA = A.view(A.size(0), -1)
+  Amin = AA.min(1, keepdim=True)[0]
+  Amax = AA.max(1, keepdim=True)[0]
+  AA = (AA - Amin) / (Amax - Amin)
+  AA = AA.view(*A.shape)
+  return AA
 
 class LinearHead(nn.Module):
   def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):
@@ -65,36 +72,39 @@ class NoisyLinear(nn.Module):
 
 
 class MPREncoder(nn.Module):
-  def __init__(self, frames: int, dropout: float = 0.5):
+  def __init__(self, frames: int, augmentation: bool = False):
     super().__init__()
-    channels=[32, 64, 64]
-    kernel_sizes=[8, 4, 3]
-    strides=[4, 2, 1]
-    paddings=[0, 0, 0]
-    nonlinearity=nn.ReLU
-    dropout_layer = nn.Dropout(dropout)
-    in_channels = [frames] + channels[:-1]
-    conv_layers = [torch.nn.Conv2d(in_channels=ic, out_channels=oc,
-                                   kernel_size=k, stride=s, padding=p) for (ic, oc, k, s, p) in
-                   zip(in_channels, channels, kernel_sizes, strides, paddings)]
-    sequence = list()
-    for conv_layer in conv_layers:
-      if dropout > 0.:
-        sequence.extend([conv_layer, nonlinearity(), dropout_layer])
-      else:
-        sequence.extend([conv_layer, nonlinearity()])
-    self.conv = torch.nn.Sequential(*sequence)
+    # channels=[32, 64, 64]
+    # kernel_sizes=[8, 4, 3]
+    # strides=[4, 2, 1]
+    # paddings=[0, 0, 0]
+    # nonlinearity=nn.ReLU
+    # dropout_layer = nn.Dropout(dropout)
+    self.augmentation = augmentation
+    dropout = 0.5 if not self.augmentation else 0.
+
+    self.conv = nn.Sequential(
+      nn.Conv2d(in_channels=frames, out_channels=32, kernel_size=8, stride=4, padding=0),
+      nn.ReLU(), nn.Dropout(dropout),
+      nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2, padding=0),
+      nn.ReLU(), nn.Dropout(dropout),
+      nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=0),
+    )
 
   def forward(self, x):
-    return self.conv(x)
+    encoding = self.conv(x)
+    if self.augmentation:
+      encoding = normalize_tensor(encoding)
+    return encoding
 
 
 class MPRTransitionModel(nn.Module):
-  def __init__(self, n_actions: int):
+  def __init__(self, n_actions: int, augmentation: bool = False):
     super().__init__()
     self.l1 = nn.Conv2d(64 + n_actions, 64, 3, padding=1)
     self.bn = nn.BatchNorm2d(64)
     self.l2 = nn.Conv2d(64, 64, 3, padding=1)
+    self.augmentation = augmentation
 
   def forward(self, x):
     x = self.l1(x)
@@ -102,8 +112,9 @@ class MPRTransitionModel(nn.Module):
       x = self.bn(x)
     x = F.relu(x)
     x = F.relu(self.l2(x))
+    if self.augmentation:
+      x = normalize_tensor(x)
     return x
-
 
 class MPR(nn.Module):
   def __init__(self, frames: int,
@@ -116,21 +127,20 @@ class MPR(nn.Module):
     self.f = frames
     self.n_actions = n_actions
     self._proj_dim = proj_dim
+    self.augmentation = augmentation
 
     # Online network
-    self.encoder = MPREncoder(frames, dropout=0.5 if not augmentation else 0.)
-    self.transition = MPRTransitionModel(n_actions)
+    self.encoder = MPREncoder(frames, augmentation=self.augmentation)
+    self.transition = MPRTransitionModel(n_actions, augmentation=self.augmentation)
     # self.projector = LinearHead(repr_dim, proj_dim, proj_dim)
     # self.predictor = LinearHead(proj_dim, 2*proj_dim, proj_dim)
     self.projector = nn.Linear(repr_dim, proj_dim)
     self.predictor = nn.Linear(proj_dim, proj_dim)
 
     # Target network
-    self.encoder_t = MPREncoder(frames, dropout=0.5 if not augmentation else 0.)
+    self.encoder_t = MPREncoder(frames, augmentation=self.augmentation)
     # self.projector_t = LinearHead(repr_dim, proj_dim, proj_dim)
     self.projector_t = nn.Linear(repr_dim, proj_dim)
-
-    self.augmentation = augmentation
 
     for param_t in self.encoder_t.parameters():
       param_t.requires_grad = False  # not update by gradient

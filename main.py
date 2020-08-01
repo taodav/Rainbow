@@ -64,6 +64,7 @@ parser.add_argument('--log-frequency', type=int, default=100, help='frequency wh
 # MPR hyperparams
 parser.add_argument('--k-step', type=int, default=5, help='(MPR) number of k-step returns')
 parser.add_argument('--mpr-loss-weight', type=float, default=2.0, help='(MPR) weight for MPR loss proportional to DQN loss')
+parser.add_argument('--augment', action='store_true', help='(MPR) do we use image augmentations?')
 
 # Setup
 args = parser.parse_args()

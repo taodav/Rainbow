@@ -26,6 +26,7 @@ class MPRAgent():
         self.mpr_loss_weight = args.mpr_loss_weight
         self.steps_per_train = args.steps_per_train
         self.train_mpr = self.mpr_loss_weight > 0.
+        self.augment = args.augment
 
         self.online_net = MPRDQN(args, self.action_space).to(device=args.device)
         if args.model:  # Load pretrained model if provided
@@ -42,11 +43,12 @@ class MPRAgent():
 
         self.online_net.train()
 
-        self.target_net = MPRDQN(args, self.action_space).to(device=args.device)
-        self.update_target_net()
-        self.target_net.train()
-        for param in self.target_net.parameters():
-            param.requires_grad = False
+        # if not self.augment:
+        #     self.target_net = MPRDQN(args, self.action_space).to(device=args.device)
+        #     self.update_target_net()
+        #     self.target_net.train()
+        #     for param in self.target_net.parameters():
+        #         param.requires_grad = False
 
         self.optimiser = optim.Adam(self.online_net.parameters(), lr=args.learning_rate, eps=args.adam_eps)
 
@@ -90,8 +92,11 @@ class MPRAgent():
                 pns = self.online_net(next_states)  # Probabilities p(s_t+n, ·; θonline)
                 dns = self.support.expand_as(pns) * pns  # Distribution d_t+n = (z, p(s_t+n, ·; θonline))
                 argmax_indices_ns = dns.sum(2).argmax(1)  # Perform argmax action selection using online network: argmax_a[(z, p(s_t+n, a; θonline))]
-                self.target_net.reset_noise()  # Sample new target net noise
-                pns = self.target_net(next_states)  # Probabilities p(s_t+n, ·; θtarget)
+
+                # if not self.augment:
+                #     self.target_net.reset_noise()  # Sample new target net noise
+                #     pns = self.target_net(next_states)  # Probabilities p(s_t+n, ·; θtarget)
+
                 pns_a = pns[range(self.batch_size), argmax_indices_ns]  # Double-Q probabilities p(s_t+n, argmax_a[(z, p(s_t+n, a; θonline))]; θtarget)
 
                 # Compute Tz (Bellman operator T applied to z)
@@ -124,7 +129,8 @@ class MPRAgent():
         return {'dqn_loss': np.average(dqn_losses), 'mpr_loss': np.average(all_mpr_losses)}
 
     def update_target_net(self):
-        self.target_net.load_state_dict(self.online_net.state_dict())
+        pass
+        # self.target_net.load_state_dict(self.online_net.state_dict())
 
     # Save model parameters on current device (don't move model between devices)
     def save(self, path, name='model.pth'):
