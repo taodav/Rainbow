@@ -61,10 +61,7 @@ class DQNAgent():
 
   def learn(self, mem):
     # Sample transitions
-    idxs, n_states, n_actions, returns, nonterminals, weights = mem.sample(self.batch_size)
-    states = n_states[:, :self.h]
-    next_states = n_states[:, self.n:self.n + self.h]
-    actions = n_actions[:, 0]
+    idxs, states, actions, returns, next_states, nonterminals, weights = mem.sample(self.batch_size)
 
     # Calculate current state probabilities (online network noise already sampled)
     log_ps = self.online_net(states, log=True)  # Log probabilities log p(s_t, ·; θonline)
@@ -102,6 +99,7 @@ class DQNAgent():
     self.optimiser.step()
 
     mem.update_priorities(idxs, loss.detach().cpu().numpy())  # Update priorities of sampled transitions
+    return {"dqn_loss": loss.mean().item()}
 
   def update_target_net(self):
     self.target_net.load_state_dict(self.online_net.state_dict())

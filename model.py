@@ -2,9 +2,9 @@
 from __future__ import division
 import math
 import torch
-from torch import nn
+from torch import nn, Tensor
 from torch.nn import functional as F
-from typing import List
+from typing import List, Tuple
 
 
 class LinearHead(nn.Module):
@@ -118,14 +118,17 @@ class MPR(nn.Module):
     self._proj_dim = proj_dim
 
     # Online network
-    self.encoder = MPREncoder(frames, dropout=0.5 if augmentation else 0.)
+    self.encoder = MPREncoder(frames, dropout=0.5 if not augmentation else 0.)
     self.transition = MPRTransitionModel(n_actions)
-    self.projector = LinearHead(repr_dim, proj_dim, proj_dim)
-    self.predictor = LinearHead(proj_dim, 2*proj_dim, proj_dim)
+    # self.projector = LinearHead(repr_dim, proj_dim, proj_dim)
+    # self.predictor = LinearHead(proj_dim, 2*proj_dim, proj_dim)
+    self.projector = nn.Linear(repr_dim, proj_dim)
+    self.predictor = nn.Linear(proj_dim, proj_dim)
 
     # Target network
-    self.encoder_t = MPREncoder(frames)
-    self.projector_t = LinearHead(repr_dim, proj_dim, proj_dim)
+    self.encoder_t = MPREncoder(frames, dropout=0.5 if not augmentation else 0.)
+    # self.projector_t = LinearHead(repr_dim, proj_dim, proj_dim)
+    self.projector_t = nn.Linear(repr_dim, proj_dim)
 
     self.augmentation = augmentation
 
@@ -155,7 +158,8 @@ class MPR(nn.Module):
     one_hot = one_hot.scatter_(2, actions, 1)
     return one_hot
 
-  def forward(self, observations: torch.Tensor, actions: torch.Tensor) -> List[torch.Tensor]:
+  def forward(self, observations: torch.Tensor, actions: torch.Tensor)\
+          -> Tuple[List[torch.Tensor], Tensor]:
     # bs, ts, _, _ = observations.shape
     bs, ts = actions.shape
     k_steps = ts - self.f
@@ -164,27 +168,28 @@ class MPR(nn.Module):
     target = self._one_hot_actions(actions)
 
     im_o = observations[:,:self.f]
-    q_e = self.encoder(im_o)
+    first_encoding = self.encoder(im_o)
+    q_e = first_encoding
 
     for k in range(1, k_steps + 1):
       # compute online features
       q_e = torch.cat((q_e, target[:,self.f-1+k-1]), 1)
       q_e = self.transition(q_e)
-      q = self.projector(q_e)
+      q = self.projector(q_e.view(bs, -1))
       q = self.predictor(q)
 
       # compute target features
       with torch.no_grad():
         im_t = observations[:,k:k+self.f]
         k_e = self.encoder_t(im_t)
-        k = self.projector_t(k_e)
+        k = self.projector_t(k_e.view(bs, -1))
 
       losses.append(-2 * F.cosine_similarity(q, k).mean())
 
     with torch.no_grad():
       self._update_target_network()
 
-    return losses
+    return losses, q_e
 
 class MPRDQN(nn.Module):
   def __init__(self, args, action_space):
@@ -194,19 +199,28 @@ class MPRDQN(nn.Module):
 
     self.mpr = MPR(args.history_length, n_actions=action_space)
 
-    self.fc_h_v = NoisyLinear(self.mpr.proj_dim, args.hidden_size, std_init=args.noisy_std)
-    self.fc_h_a = NoisyLinear(self.mpr.proj_dim, args.hidden_size, std_init=args.noisy_std)
-    self.fc_z_v = NoisyLinear(args.hidden_size, self.atoms, std_init=args.noisy_std)
-    self.fc_z_a = NoisyLinear(args.hidden_size, action_space * self.atoms, std_init=args.noisy_std)
+    # self.fc_h_v = NoisyLinear(self.mpr.proj_dim, args.hidden_size, std_init=args.noisy_std)
+    # self.fc_h_a = NoisyLinear(self.mpr.proj_dim, args.hidden_size, std_init=args.noisy_std)
+    # self.fc_z_v = NoisyLinear(args.hidden_size, self.atoms, std_init=args.noisy_std)
+    # self.fc_z_a = NoisyLinear(args.hidden_size, action_space * self.atoms, std_init=args.noisy_std)
+    self.value_input_size = self.mpr.proj_dim // 2
+    self.adv_input_size = self.mpr.proj_dim - self.value_input_size
+
+    self.fc_z_v = NoisyLinear(self.value_input_size, self.atoms, std_init=args.noisy_std)
+    self.fc_z_a = NoisyLinear(self.adv_input_size, action_space * self.atoms, std_init=args.noisy_std)
 
   def forward(self, x, log=False):
     # x = self.convs(x)
     # x = x.view(-1, self.conv_output_size)
     x = self.mpr.encoder(x)
-    x = F.relu(self.mpr.projector(x))
+    x = F.relu(self.mpr.projector(x.view(x.shape[0], -1)))
 
-    v = self.fc_z_v(F.relu(self.fc_h_v(x)))  # Value stream
-    a = self.fc_z_a(F.relu(self.fc_h_a(x)))  # Advantage stream
+    # v = self.fc_z_v(F.relu(self.fc_h_v(x)))  # Value stream
+    # a = self.fc_z_a(F.relu(self.fc_h_a(x)))  # Advantage stream
+
+    v = self.fc_z_v(x[:, :self.value_input_size])  # Value stream
+    a = self.fc_z_a(x[:, self.value_input_size:])  # Advantage stream
+
     v, a = v.view(-1, 1, self.atoms), a.view(-1, self.action_space, self.atoms)
     q = v + a - a.mean(1, keepdim=True)  # Combine streams
     if log:  # Use log softmax for numerical stability

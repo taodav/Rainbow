@@ -97,8 +97,6 @@ class ReplayMemory():
         transition[t] = blank_trans  # If prev (next) frame is terminal
     return transition
 
-
-
   # Returns a valid sample from a segment
   def _get_sample_from_segment(self, segment, i):
     valid = False
@@ -114,7 +112,6 @@ class ReplayMemory():
     # Create un-discretised state and nth next state
     state = torch.stack([trans.state for trans in transition[:self.history]]).to(device=self.device).to(dtype=torch.float32).div_(255)
     next_state = torch.stack([trans.state for trans in transition[self.n:self.n + self.history]]).to(device=self.device).to(dtype=torch.float32).div_(255)
-
     # Discrete action to be used as index
     action = torch.tensor([transition[self.history - 1].action], dtype=torch.int64, device=self.device)
     # Calculate truncated n-step discounted return R^n = Σ_k=0->n-1 (γ^k)R_t+k+1 (note that invalid nth next states have reward 0)
@@ -122,7 +119,6 @@ class ReplayMemory():
     # Mask for non-terminal nth next states
     nonterminal = torch.tensor([transition[self.history + self.n - 1].nonterminal], dtype=torch.float32, device=self.device)
 
-    # return prob, idx, tree_idx, state, action, R, next_state, nonterminal
     return prob, idx, tree_idx, state, action, R, next_state, nonterminal
 
   def sample(self, batch_size):
@@ -137,7 +133,6 @@ class ReplayMemory():
     weights = (capacity * probs) ** -self.priority_weight  # Compute importance-sampling weights w
     weights = torch.tensor(weights / weights.max(), dtype=torch.float32, device=self.device)  # Normalise by max importance-sampling weight from batch
     return tree_idxs, states, actions, returns, next_states, nonterminals, weights
-
 
   def update_priorities(self, idxs, priorities):
     priorities = np.power(priorities, self.priority_exponent)

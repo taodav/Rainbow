@@ -25,6 +25,7 @@ class MPRAgent():
         self.norm_clip = args.norm_clip
         self.mpr_loss_weight = args.mpr_loss_weight
         self.steps_per_train = args.steps_per_train
+        self.train_mpr = self.mpr_loss_weight > 0.
 
         self.online_net = MPRDQN(args, self.action_space).to(device=args.device)
         if args.model:  # Load pretrained model if provided
@@ -63,15 +64,18 @@ class MPRAgent():
         return np.random.randint(0, self.action_space) if np.random.random() < epsilon else self.act(state)
 
     def learn(self, mem):
-
+        dqn_losses, all_mpr_losses = [], []
         for _ in range(self.steps_per_train):
             # Sample transitions
             idxs, n_states, n_actions, returns, nonterminals, weights = mem.sample(self.batch_size)
 
-            mpr = self.online_net.mpr
-            k_states = n_states[:, :self.k + self.f]
-            k_actions = n_actions[:, :self.k + self.f]
-            mpr_loss = sum(mpr(k_states, k_actions))
+            mpr_loss = torch.tensor(0)
+            if self.train_mpr:
+                mpr = self.online_net.mpr
+                k_states = n_states[:, :self.k + self.f]
+                k_actions = n_actions[:, :self.k + self.f]
+                mpr_losses, encoding = mpr(k_states, k_actions)
+                mpr_loss = sum(mpr_losses)
 
             states = n_states[:, :self.f]
             next_states = n_states[:, self.n:self.n + self.f]
@@ -114,8 +118,10 @@ class MPRAgent():
             self.optimiser.step()
 
             mem.update_priorities(idxs, dqn_loss.detach().cpu().numpy())  # Update priorities of sampled transitions
+            dqn_losses.append(dqn_loss.mean().item())
+            all_mpr_losses.append(mpr_loss.item())
 
-        return {'dqn_loss': dqn_loss.mean().item(), 'mpr_loss': mpr_loss.item()}
+        return {'dqn_loss': np.average(dqn_losses), 'mpr_loss': np.average(all_mpr_losses)}
 
     def update_target_net(self):
         self.target_net.load_state_dict(self.online_net.state_dict())

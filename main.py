@@ -10,6 +10,7 @@ import atari_py
 import numpy as np
 import torch
 from tqdm import trange
+from collections import deque
 
 from agents import DQNAgent, MPRAgent
 from env import Env
@@ -57,9 +58,9 @@ parser.add_argument('--checkpoint-interval', default=0, help='How often to check
 parser.add_argument('--memory', help='Path to save/load the memory from')
 parser.add_argument('--disable-bzip-memory', action='store_true', help='Don\'t zip the memory file. Not recommended (zipping is a bit slower and much, much smaller)')
 
-parser.add_argument('--life-termination', action='store_true', help='Do we terminate on loss of life?')
 parser.add_argument('--steps-per-train', type=int, default=1, help='number of steps per training iteration')
 parser.add_argument('--agent', type=str, default="dqn", help="Which agent do we initialize? dqn | mpr")
+parser.add_argument('--log-frequency', type=int, default=100, help='frequency which we log losses')
 # MPR hyperparams
 parser.add_argument('--k-step', type=int, default=5, help='(MPR) number of k-step returns')
 parser.add_argument('--mpr-loss-weight', type=float, default=2.0, help='(MPR) weight for MPR loss proportional to DQN loss')
@@ -134,13 +135,13 @@ else:
     mem = ReplayMemory(args, args.memory_capacity)
 
 priority_weight_increase = (1 - args.priority_weight) / (args.T_max - args.learn_start)
-
+loss_buffer = {}
 
 # Construct validation memory
 if args.agent == "mpr":
-  val_mem = ReplaySequenceMemory(args, args.memory_capacity)
+  val_mem = ReplaySequenceMemory(args, args.evaluation_size)
 else:
-  val_mem = ReplayMemory(args, args.memory_capacity)
+  val_mem = ReplayMemory(args, args.evaluation_size)
 
 T, done = 0, True
 while T < args.evaluation_size:
@@ -180,6 +181,17 @@ else:
 
       if T % args.replay_frequency == 0:
         losses = dqn.learn(mem)  # Train with n-step distributional double-Q learning
+        for k, l in losses.items():
+          if k not in loss_buffer:
+            loss_buffer[k] = deque([], maxlen=args.log_frequency)
+          loss_buffer[k].append(l)
+
+        if T % args.log_frequency == 0:
+          log_str = f"Timestep {T}  "
+          for k, l in loss_buffer.items():
+            log_str += f"{k}: {np.mean(l)} | "
+          pbar.set_description(log_str)
+
 
       if T % args.evaluation_interval == 0:
         dqn.eval()  # Set DQN (online network) to evaluation mode
