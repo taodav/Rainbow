@@ -66,8 +66,12 @@ parser.add_argument('--k-step', type=int, default=5, help='(MPR) number of k-ste
 parser.add_argument('--mpr-loss-weight', type=float, default=2.0, help='(MPR) weight for MPR loss proportional to DQN loss')
 parser.add_argument('--augment', action='store_true', help='(MPR) do we use image augmentations?')
 
+parser.add_argument('--wandb', action='store_true', help='Do we log to wandb or not?')
 # Setup
 args = parser.parse_args()
+
+if args.wandb:
+  import wandb
 
 print(' ' * 26 + 'Options')
 for k, v in vars(args).items():
@@ -189,9 +193,14 @@ else:
 
         if T % args.log_frequency == 0:
           log_str = f"Timestep {T}  "
+          res = {}
           for k, l in loss_buffer.items():
-            log_str += f"{k}: {np.mean(l)} | "
+            l_mean = np.mean(l)
+            log_str += f"{k}: {l_mean} | "
+            res[k] = l_mean
           pbar.set_description(log_str)
+          if args.wandb:
+            wandb.log(res, step=T)
 
 
       if T % args.evaluation_interval == 0:
