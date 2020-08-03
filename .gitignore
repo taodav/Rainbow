@@ -94,4 +94,8 @@ ENV/
 # Plots
 *.html
 
+# iPython notebooks
 notebooks/
+
+# wandb log directory
+wandb/

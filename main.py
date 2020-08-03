@@ -148,6 +148,12 @@ if args.agent == "mpr":
 else:
   val_mem = ReplayMemory(args, args.evaluation_size)
 
+if args.wandb:
+  import wandb
+  import hashlib
+  arg_hash = hashlib.md5(str(args).encode('utf-8')).hexdigest()
+  wandb.init(project="MPR", config=args, group=arg_hash, job_type='main')
+
 T, done = 0, True
 while T < args.evaluation_size:
   if done:
@@ -192,12 +198,12 @@ else:
           loss_buffer[k].append(l)
 
         if T % args.log_frequency == 0:
-          log_str = f"Timestep {T}  "
           res = {}
+          log_str = f"Timestep {T}  "
           for k, l in loss_buffer.items():
             l_mean = np.mean(l)
             log_str += f"{k}: {l_mean} | "
-            res[k] = l_mean
+            res[f"TRAIN/{k}"] = l_mean
           pbar.set_description(log_str)
           if args.wandb:
             wandb.log(res, step=T)
@@ -206,6 +212,9 @@ else:
       if T % args.evaluation_interval == 0:
         dqn.eval()  # Set DQN (online network) to evaluation mode
         avg_reward, avg_Q = test(args, T, dqn, val_mem, metrics, results_dir)  # Test
+        if args.wandb:
+          res_eval = {'EVAL/avg_reward': avg_reward, 'EVAL/avg_Q': avg_Q}
+          wandb.log(res_eval, step=T)
         log('T = ' + str(T) + ' / ' + str(args.T_max) + ' | Avg. reward: ' + str(avg_reward) + ' | Avg. Q: ' + str(avg_Q))
         dqn.train()  # Set DQN (online network) back to training mode
 
