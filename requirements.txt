@@ -4,3 +4,4 @@ plotly
 torch
 tqdm
 wandb
+kornia

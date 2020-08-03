@@ -223,7 +223,7 @@ class ReplaySequenceMemory(ReplayMemory):
     # Create un-discretised state and nth next state
     state = torch.stack([trans.state for trans in transition]).to(device=self.device, dtype=torch.float32).div_(255)
     # Augmentations to image
-    state = self.augment(state)
+    state = self.augment(state.unsqueeze(0)).squeeze(0)
 
     # Discrete action to be used as index
     action = torch.stack([torch.tensor(trans.action) for trans in transition]).to(device=self.device, dtype=torch.long)
