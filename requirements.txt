@@ -3,3 +3,5 @@ opencv-python
 plotly
 torch
 tqdm
+atari-py
+kornia

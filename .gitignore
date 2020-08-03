@@ -93,3 +93,5 @@ ENV/
 *.pth
 # Plots
 *.html
+
+notebooks/
