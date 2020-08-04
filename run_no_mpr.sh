@@ -14,4 +14,5 @@ python main.py \
   --log-frequency 100 \
   --augment \
   --mpr-loss-weight 0 \
+  --checkpoint-interval 5000 \
   --wandb \
