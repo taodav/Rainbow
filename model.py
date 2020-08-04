@@ -89,6 +89,7 @@ class MPREncoder(nn.Module):
       nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2, padding=0),
       nn.ReLU(), nn.Dropout(dropout),
       nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=0),
+      nn.ReLU()
     )
 
   def forward(self, x):
@@ -142,10 +143,17 @@ class MPR(nn.Module):
     # self.projector_t = LinearHead(repr_dim, proj_dim, proj_dim)
     self.projector_t = nn.Linear(repr_dim, proj_dim)
 
-    for param_t in self.encoder_t.parameters():
-      param_t.requires_grad = False  # not update by gradient
-    for param_t in self.projector_t.parameters():
-      param_t.requires_grad = False  # not update by gradient
+    # Copy parameters initially
+    # self.encoder_t.load_state_dict(self.encoder.state_dict())
+    # self.projector_t.load_state_dict(self.projector.state_dict())
+
+    for enc_param, enc_param_t in zip(self.encoder.parameters(), self.encoder_t.parameters()):
+      enc_param_t.data.copy_(enc_param.data)
+      enc_param_t.requires_grad = False  # not update by gradient
+
+    for proj_param, proj_param_t in zip(self.projector.parameters(), self.projector_t.parameters()):
+      proj_param_t.data.copy_(proj_param.data)
+      proj_param_t.requires_grad = False  # not update by gradient
 
   @property
   def proj_dim(self):
@@ -170,6 +178,9 @@ class MPR(nn.Module):
 
   def forward(self, observations: torch.Tensor, actions: torch.Tensor)\
           -> Tuple[List[torch.Tensor], Tensor]:
+    with torch.no_grad():
+      self._update_target_network()
+
     # bs, ts, _, _ = observations.shape
     bs, ts = actions.shape
     k_steps = ts - self.f
@@ -183,6 +194,8 @@ class MPR(nn.Module):
 
     for k in range(1, k_steps + 1):
       # compute online features
+
+      # TODO: CHECK WHAT YOU'RE PASSING IN IS CORRECT
       q_e = torch.cat((q_e, target[:,self.f-1+k-1]), 1)
       q_e = self.transition(q_e)
       q = self.projector(q_e.view(bs, -1))
@@ -194,12 +207,9 @@ class MPR(nn.Module):
         k_e = self.encoder_t(im_t)
         k = self.projector_t(k_e.view(bs, -1))
 
-      losses.append(-2 * F.cosine_similarity(q, k).mean())
+      losses.append(-F.cosine_similarity(q, k).mean())
 
-    with torch.no_grad():
-      self._update_target_network()
-
-    return losses, q_e
+    return losses, first_encoding
 
 class MPRDQN(nn.Module):
   def __init__(self, args, action_space):

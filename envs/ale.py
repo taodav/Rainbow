@@ -6,7 +6,7 @@ import cv2
 import torch
 
 
-class Env():
+class ALEEnv():
   def __init__(self, args):
     self.device = args.device
     self.ale = atari_py.ALEInterface()

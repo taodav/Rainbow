@@ -6,12 +6,12 @@ from plotly.graph_objs import Scatter
 from plotly.graph_objs.scatter import Line
 import torch
 
-from env import Env
+from envs.ale import ALEEnv
 
 
 # Test DQN
 def test(args, T, dqn, val_mem, metrics, results_dir, evaluate=False):
-  env = Env(args)
+  env = ALEEnv(args)
   env.eval()
   metrics['steps'].append(T)
   T_rewards, T_Qs = [], []

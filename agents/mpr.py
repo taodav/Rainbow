@@ -119,14 +119,14 @@ class MPRAgent():
 
             self.online_net.zero_grad()
             ((weights * dqn_loss).mean() + mpr_loss * self.mpr_loss_weight).backward()  # Backpropagate importance-weighted minibatch loss
-            clip_grad_norm_(self.online_net.parameters(), self.norm_clip)  # Clip gradients by L2 norm
+            grad_norm = clip_grad_norm_(self.online_net.parameters(), self.norm_clip)  # Clip gradients by L2 norm
             self.optimiser.step()
 
             mem.update_priorities(idxs, dqn_loss.detach().cpu().numpy())  # Update priorities of sampled transitions
             dqn_losses.append(dqn_loss.mean().item())
             all_mpr_losses.append(mpr_loss.item())
 
-        return {'dqn_loss': np.average(dqn_losses), 'mpr_loss': np.average(all_mpr_losses)}
+        return {'dqn_loss': np.average(dqn_losses), 'mpr_loss': np.average(all_mpr_losses), 'grad_norm': grad_norm.item()}
 
     def update_target_net(self):
         pass

@@ -1,4 +1,5 @@
 atari-py
+procgen
 opencv-python
 plotly
 torch

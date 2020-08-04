@@ -13,5 +13,5 @@ python main.py \
   --memory-capacity 100000 \
   --log-frequency 100 \
   --augment \
+  --mpr-loss-weight 0 \
   --wandb \
-#  --render

@@ -13,7 +13,7 @@ from tqdm import trange
 from collections import deque
 
 from agents import DQNAgent, MPRAgent
-from env import Env
+from envs.ale import ALEEnv
 from memory import ReplayMemory, ReplaySequenceMemory
 from test import test
 
@@ -114,7 +114,7 @@ def save_memory(memory, memory_path, disable_bzip):
 
 
 # Environment
-env = Env(args)
+env = ALEEnv(args)
 env.train()
 action_space = env.action_space()
 

@@ -9,6 +9,8 @@ import kornia.augmentation as aug
 Transition = namedtuple('Transition', ('timestep', 'state', 'action', 'reward', 'nonterminal'))
 blank_trans = Transition(0, torch.zeros(84, 84, dtype=torch.uint8), None, 0, False)
 
+# FOR DEBUGGING
+import time
 
 # Segment tree data structure where parent node values are sum/max of children node values
 class SegmentTree():
@@ -122,9 +124,11 @@ class ReplayMemory():
 
     # Retrieve all required transition data (from t - h to t + n)
     transition = self._get_transition(idx)
+
     # Create un-discretised state and nth next state
     state = torch.stack([trans.state for trans in transition[:self.history]]).to(device=self.device).to(dtype=torch.float32).div_(255)
     next_state = torch.stack([trans.state for trans in transition[self.n:self.n + self.history]]).to(device=self.device).to(dtype=torch.float32).div_(255)
+
     # Discrete action to be used as index
     action = torch.tensor([transition[self.history - 1].action], dtype=torch.int64, device=self.device)
     # Calculate truncated n-step discounted return R^n = Σ_k=0->n-1 (γ^k)R_t+k+1 (note that invalid nth next states have reward 0)
@@ -209,6 +213,7 @@ class ReplaySequenceMemory(ReplayMemory):
   # Returns a valid sample from a segment
   def _get_sample_from_segment(self, segment, i):
     valid = False
+
     while not valid:
       sample = np.random.uniform(i * segment, (i + 1) * segment)  # Uniformly sample an element from within a segment
       prob, idx, tree_idx = self.transitions.find(sample)  # Retrieve sample from tree with un-normalised probability
