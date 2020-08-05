@@ -11,7 +11,7 @@ python main.py \
   --evaluation-interval 5000 \
   --T-max 100000 \
   --memory-capacity 100000 \
-  --log-frequency 100 \
+  --log-frequency 500 \
   --augment \
   --mpr-loss-weight 0 \
   --checkpoint-interval 5000 \
