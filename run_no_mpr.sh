@@ -13,6 +13,6 @@ python main.py \
   --memory-capacity 100000 \
   --log-frequency 500 \
   --augment \
-  --mpr-loss-weight 0 \
   --checkpoint-interval 5000 \
   --wandb \
+  --mpr-loss-weight 0 \

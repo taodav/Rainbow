@@ -12,7 +12,6 @@ python main.py \
   --T-max 100000 \
   --memory-capacity 100000 \
   --log-frequency 500 \
-  --checkpoint-interval 5000 \
   --augment \
+  --checkpoint-interval 5000 \
   --wandb \
-#  --render
