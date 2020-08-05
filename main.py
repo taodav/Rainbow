@@ -54,7 +54,7 @@ parser.add_argument('--evaluation-episodes', type=int, default=10, metavar='N', 
 parser.add_argument('--evaluation-size', type=int, default=500, metavar='N', help='Number of transitions to use for validating Q')
 parser.add_argument('--render', action='store_true', help='Display screen (testing only)')
 parser.add_argument('--enable-cudnn', action='store_true', help='Enable cuDNN (faster but nondeterministic)')
-parser.add_argument('--checkpoint-interval', default=0, help='How often to checkpoint the model, defaults to 0 (never checkpoint)')
+parser.add_argument('--checkpoint-interval', type=int, default=0, help='How often to checkpoint the model, defaults to 0 (never checkpoint)')
 parser.add_argument('--memory', help='Path to save/load the memory from')
 parser.add_argument('--disable-bzip-memory', action='store_true', help='Don\'t zip the memory file. Not recommended (zipping is a bit slower and much, much smaller)')
 
@@ -70,8 +70,6 @@ parser.add_argument('--wandb', action='store_true', help='Do we log to wandb or 
 # Setup
 args = parser.parse_args()
 
-if args.wandb:
-  import wandb
 
 print(' ' * 26 + 'Options')
 for k, v in vars(args).items():
@@ -112,6 +110,12 @@ def save_memory(memory, memory_path, disable_bzip):
     with bz2.open(memory_path, 'wb') as zipped_pickle_file:
       pickle.dump(memory, zipped_pickle_file)
 
+# wandb logging
+if args.wandb:
+  import wandb
+  import hashlib
+  arg_hash = hashlib.md5(str(args).encode('utf-8')).hexdigest()
+  wandb.init(project="MPR", config=args, group=arg_hash, job_type='main')
 
 # Environment
 env = ALEEnv(args)
@@ -148,11 +152,9 @@ if args.agent == "mpr":
 else:
   val_mem = ReplayMemory(args, args.evaluation_size)
 
+
 if args.wandb:
-  import wandb
-  import hashlib
-  arg_hash = hashlib.md5(str(args).encode('utf-8')).hexdigest()
-  wandb.init(project="MPR", config=args, group=arg_hash, job_type='main')
+  wandb.watch(dqn.online_net)
 
 T, done = 0, True
 while T < args.evaluation_size:
