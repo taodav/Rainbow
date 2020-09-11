@@ -70,19 +70,18 @@ class MPRAgent():
         dqn_losses, all_mpr_losses = [], []
         for _ in range(self.steps_per_train):
             # Sample transitions
-            idxs, n_states, n_actions, returns, nonterminals, weights = mem.sample(self.batch_size)
+            idxs, k_states, k_actions, returns, next_states, nonterminals, weights = mem.sample(self.batch_size)
 
             mpr_loss = torch.tensor(0)
             if self.train_mpr:
                 mpr = self.online_net.mpr
-                k_states = n_states[:, :self.k + self.f]
-                k_actions = n_actions[:, :self.k + self.f]
+                # k_states = n_states[:, :self.k + self.f]
+                # k_actions = n_actions[:, :self.k + self.f]
                 mpr_losses, encoding = mpr(k_states, k_actions)
                 mpr_loss = sum(mpr_losses)
 
-            states = n_states[:, :self.f]
-            next_states = n_states[:, self.n:self.n + self.f]
-            actions = n_actions[:, 0]
+            states = k_states[:, :self.f]
+            actions = k_actions[:, 0]
 
             # Calculate current state probabilities (online network noise already sampled)
             log_ps = self.online_net(states, log=True)  # Log probabilities log p(s_t, ·; θonline)
